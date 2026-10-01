@@ -1,0 +1,44 @@
+{
+  "name": "dsh-comfyui-image",
+  "version": "0.1.0",
+  "description": "Drive a local ComfyUI image workflow (Z-Image-Turbo, Qwen-Image-2.1) from DeepSeek Harness",
+  "license": "MIT",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./comfy": "./lib/comfy.js",
+    "./generate": "./lib/generate.js",
+    "./workflows": "./lib/workflows.js",
+    "./define-tool": "./lib/define-tool.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "skills",
+    "workflows",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node scripts/smoke.mjs"
+  },
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "cordis",
+    "comfyui",
+    "image-generation",
+    "z-image-turbo",
+    "qwen-image"
+  ],
+  "engines": {
+    "dsh": ">=0.2.0-rc.2"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

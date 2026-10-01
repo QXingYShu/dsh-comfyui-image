@@ -1,0 +1,73 @@
+{
+  "3": {
+    "class_type": "KSampler",
+    "inputs": {
+      "seed": "{{seed}}",
+      "steps": "{{steps}}",
+      "cfg": "{{cfg}}",
+      "sampler_name": "{{sampler_name}}",
+      "scheduler": "{{scheduler}}",
+      "denoise": 1.0,
+      "model": ["28", 0],
+      "positive": ["27", 0],
+      "negative": ["33", 0],
+      "latent_image": ["13", 0]
+    }
+  },
+  "8": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": ["3", 0],
+      "vae": ["29", 0]
+    }
+  },
+  "9": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "filename_prefix": "{{filename_prefix}}",
+      "images": ["8", 0]
+    }
+  },
+  "13": {
+    "class_type": "EmptySD3LatentImage",
+    "inputs": {
+      "width": "{{width}}",
+      "height": "{{height}}",
+      "batch_size": "{{batch_size}}"
+    }
+  },
+  "27": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "{{prompt}}",
+      "clip": ["30", 0]
+    }
+  },
+  "28": {
+    "class_type": "UNETLoader",
+    "inputs": {
+      "unet_name": "{{unet_name}}",
+      "weight_dtype": "default"
+    }
+  },
+  "29": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "{{vae_name}}"
+    }
+  },
+  "30": {
+    "class_type": "CLIPLoader",
+    "inputs": {
+      "clip_name": "{{clip_name}}",
+      "type": "lumina2",
+      "device": "default"
+    }
+  },
+  "33": {
+    "class_type": "ConditioningZeroOut",
+    "inputs": {
+      "conditioning": ["27", 0]
+    }
+  }
+}

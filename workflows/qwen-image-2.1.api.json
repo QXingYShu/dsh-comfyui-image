@@ -1,0 +1,74 @@
+{
+  "451": {
+    "class_type": "UNETLoader",
+    "inputs": {
+      "unet_name": "{{unet_name}}",
+      "weight_dtype": "default"
+    }
+  },
+  "452": {
+    "class_type": "TextEncodeQwenImage21",
+    "inputs": {
+      "clip": ["453", 0],
+      "prompt": "{{prompt}}",
+      "negative_prompt": "{{negative_prompt}}",
+      "resolution": "{{resolution}}",
+      "images": [],
+      "vae": ["454", 0]
+    }
+  },
+  "453": {
+    "class_type": "CLIPLoader",
+    "inputs": {
+      "clip_name": "{{clip_name}}",
+      "type": "qwen_image",
+      "device": "default"
+    }
+  },
+  "454": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "{{vae_name}}"
+    }
+  },
+  "456": {
+    "class_type": "EmptyLatentImage",
+    "inputs": {
+      "width": "{{width}}",
+      "height": "{{height}}",
+      "batch_size": "{{batch_size}}"
+    }
+  },
+  "457": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": ["458", 0],
+      "vae": ["454", 0]
+    }
+  },
+  "458": {
+    "class_type": "KSampler",
+    "inputs": {
+      "seed": "{{seed}}",
+      "steps": "{{steps}}",
+      "cfg": "{{cfg}}",
+      "sampler_name": "{{sampler_name}}",
+      "scheduler": "{{scheduler}}",
+      "denoise": 1.0,
+      "model": ["451", 0],
+      "positive": ["452", 0],
+      "negative": ["452", 1],
+      "latent_image": ["456", 0]
+    }
+  },
+  "461": {
+    "class_type": "SaveImageAdvanced",
+    "inputs": {
+      "filename_prefix": "{{filename_prefix}}",
+      "images": ["457", 0],
+      "format": "png",
+      "format.bit_depth": "8-bit",
+      "format.input_color_space": "sRGB"
+    }
+  }
+}

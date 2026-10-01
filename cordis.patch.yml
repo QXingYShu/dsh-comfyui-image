@@ -1,0 +1,7 @@
+# dsh-comfyui-image bundle patch: mounts the plugin's host entry into the profile
+# roster so `ctx.tools` and `ctx.skills` are available when it applies.
+#
+# Install with:  dsh plugin --profile <name> add <path-to-this-dir>
+- insert:
+    - id: comfyui-image
+      name: 'dsh-comfyui-image'

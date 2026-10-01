@@ -2,5 +2,7 @@ node_modules/
 .boot-check/
 .smoke-out/
 generated-images/
+__pycache__/
+*.pyc
 *.log
 .DS_Store

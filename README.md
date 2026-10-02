@@ -1,23 +1,72 @@
 # dsh-comfyui-image
 
-Generate image assets from **DeepSeek Harness** using a **local ComfyUI** install —
-no API keys, no cloud, no per-image cost. The agent picks a model, writes the
-prompt, queues the workflow on your own GPU, and gets back a real image file.
+Generate images, video, audio and 3D assets from **DeepSeek Harness** using a
+**local ComfyUI** install — no API keys, no cloud, no per-image cost. The agent
+picks a model, writes the prompt, queues the workflow on your own GPU, and gets
+back a real file.
 
-Two workflows ship wired up:
+Two things ship wired up. The first is two hand-tuned text-to-image workflows:
 
 | Workflow | Good at | Speed | Negative prompt |
 |---|---|---|---|
 | **Z-Image-Turbo** | drafts, batches, fast iteration | seconds | no (CFG 1, prompt only) |
-| **Qwen-Image-2.1** | final assets, legible in-image text, precise composition | minutes | yes |
+| **Qwen-Image-2.1** | final assets, legible in-image text, precise composition | tens of seconds | yes |
+
+The second is everything else: ComfyUI already ships **116 workflow templates
+across 67 open-weight model families** — image editing, video generation,
+ControlNet and pose control, depth estimation, background removal, upscaling,
+3D, music and audio. This plugin makes all of them drivable from the agent.
 
 ## What it registers
 
-- **`comfyui_generate`** — generate one or more images and save them to disk.
-- **`comfyui_status`** — report which workflows are ready on this machine and
-  what defaults they use. Useful when generation fails.
-- **Skill `comfyui-image`** — model selection and prompt craft, so the agent
-  chooses deliberately instead of always reaching for the same model.
+- **`comfyui_generate`** — text-to-image, one prompt in, tuned parameters out.
+- **`comfyui_templates`** — browse the machine's template catalogue, inspect one
+  template's inputs, or ask which model fits a task (`recommend=true`).
+- **`comfyui_run_template`** — run a template and save its output.
+- **`comfyui_status`** — report what is installed and ready. Useful when a
+  generation fails.
+- **Skill `comfyui-image`** — model selection, prompt craft, sampler tuning and
+  negative-prompt support, so the agent chooses deliberately.
+
+## The template catalogue
+
+ComfyUI stores its templates as **browser graphs**: canvas coordinates, link
+objects, and the real graph wrapped in a subgraph. `/prompt` accepts none of
+that — it wants the API form. The server has no conversion path; it exists only
+in the frontend's JavaScript.
+
+`lib/blueprint.js` is that conversion. Each part of it was a real bug:
+
+- subgraph unwrapping, because a template's top-level node type is a UUID
+- widget alignment, because `widgets_values` is positional over *widget* inputs
+  only and a seeded widget is followed by its control-after-generate setting —
+  get it wrong and every later value lands on the wrong input
+- dependency order, because the canvas stores nodes in creation order, so
+  converting in file order drops required inputs and ComfyUI blames a node
+  several steps away
+- `Reroute` is a splint, not a decoration: dropping it severs every link behind it
+- template defaults live on the node an exposed input feeds, not at the top level
+- templates ship no `SaveImage`, and the executor persists only `OUTPUT_NODE`
+  results, so one is appended on a collision-free id
+
+309 of 348 template files convert cleanly across 67 model families. The
+remainder are refused with a reason rather than converted into something that
+would quietly render the wrong thing.
+
+## The knowledge layer
+
+Capability is not the hard part — knowing how to *drive* a model is. The
+catalogue supplies each template's default values, but not the reasoning, so
+`lib/model-knowledge.js` records what each family needs: sampler ranges,
+negative-prompt support, text-rendering reliability, and prompt hints.
+
+Every value is read back out of the local blueprints rather than written from
+memory, and anything unverified is marked as such.
+
+The reasoning catches things that fail silently. Z-Image-Turbo wires its
+sampler's negative slot to a node that zeroes it, so **a negative prompt
+produces a byte-identical image instead of an error**. An agent that does not
+know this will "refine" a prompt and change nothing at all.
 
 ## Requirements
 
@@ -116,11 +165,17 @@ the GPU — you get an error naming it, not a silently wrong image.
 ## Development
 
 ```sh
-npm test                          # hermetic: schema shape, parameter resolution, apply() on a fake host
+npm test                          # schema shape, parameter resolution, apply(), blueprint conversion, catalogue, knowledge
 npm run test:host                 # the installed Harness's own skill validator, extracted from app.asar
 npm run test:smoke                # discovery + a real generation of both workflows through the tool
 node scripts/boot-check.mjs <node_modules> <plugin-dir>   # apply() under the real Cordis loader
 ```
+
+`npm test` runs six suites. The first three are hermetic; the blueprint,
+catalogue and knowledge suites read the ComfyUI templates installed on this
+machine, because their whole subject is those real files — a synthetic fixture
+would pass while the actual conversion stayed broken. Each skips cleanly when no
+ComfyUI install is present.
 
 `npm test` is hermetic and needs neither ComfyUI nor the Harness. The other
 three need one of the two, and `boot-check` additionally needs a checkout that

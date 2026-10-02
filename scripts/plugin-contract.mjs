@@ -4,8 +4,12 @@
 //
 // usage: node scripts/plugin-contract.mjs
 
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { apply } from "../lib/index.js";
 import { validateAsLoadedRuntimeSkill } from "./dsh-skill-contract.mjs";
+
+const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 
 let failures = 0;
 function check(name, condition, detail) {
@@ -138,6 +142,21 @@ check(
 );
 const rendered = status.output.render({}, single);
 check("status renders text", Array.isArray(rendered) && rendered[0].type === "text");
+
+console.log("# output directory resolution");
+// The Host process starts in the profile directory, so a relative path has to
+// be resolved against the agent's working directory. Resolving against
+// `process.cwd()` instead drops every generated image outside the workspace.
+const fakeExec = { agent: { session: { header: { cwd: join(ROOT, "workspace") } } } };
+const inWorkspace = await status.execute({}, fakeExec);
+check("output_dir follows the agent cwd",
+  inWorkspace.output_dir === join(ROOT, "workspace", "generated-images"), inWorkspace.output_dir);
+check("output_dir does not silently fall back to process.cwd()",
+  resolve(ROOT, "workspace", "generated-images") !== join(process.cwd(), "generated-images"));
+const withoutAgent = await status.execute({}, {});
+check("output_dir still resolves when the agent is absent",
+  typeof withoutAgent.output_dir === "string" && withoutAgent.output_dir.includes("generated-images"),
+  withoutAgent.output_dir);
 
 console.log("# render output of generate");
 const renderedGen = generate.output.render(

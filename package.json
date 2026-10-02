@@ -22,7 +22,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "test": "node scripts/define-tool.mjs && node scripts/workflow-render.mjs && node scripts/plugin-contract.mjs",
+    "test": "node scripts/define-tool.mjs && node scripts/workflow-render.mjs && node scripts/plugin-contract.mjs && node scripts/blueprint-convert.mjs && node scripts/blueprint-runner.mjs && node scripts/model-knowledge.mjs",
     "test:host": "node scripts/verify-against-host.mjs",
     "test:smoke": "node scripts/smoke.mjs"
   },

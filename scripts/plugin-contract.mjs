@@ -51,13 +51,34 @@ const dispose = apply(ctx);
 
 console.log("# registrations");
 check("plugin exports name", true);
-check("two tools registered", tools.size === 2, [...tools.keys()].join(", "));
+check("four tools registered", tools.size === 4, [...tools.keys()].join(", "));
 check("one skill registered", skills.size === 1, [...skills.keys()].join(", "));
 
 const generate = tools.get("comfyui_generate");
 const status = tools.get("comfyui_status");
+const templates = tools.get("comfyui_templates");
+const runTemplate = tools.get("comfyui_run_template");
 check("comfyui_generate present", generate !== undefined);
 check("comfyui_status present", status !== undefined);
+check("comfyui_templates present", templates !== undefined);
+check("comfyui_run_template present", runTemplate !== undefined);
+
+console.log("# template tool schemas");
+check(
+  "comfyui_templates takes no required argument",
+  templates.parameters.required === undefined,
+  JSON.stringify(templates.parameters.required),
+);
+check(
+  "comfyui_run_template requires a template",
+  runTemplate.parameters.required?.includes("template"),
+  JSON.stringify(runTemplate.parameters.required),
+);
+check(
+  "comfyui_run_template accepts an inputs object",
+  runTemplate.parameters.properties.inputs?.type === "object",
+  JSON.stringify(runTemplate.parameters.properties.inputs?.type),
+);
 
 console.log("# comfyui_generate schema");
 const schema = generate.parameters;

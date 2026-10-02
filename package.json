@@ -22,7 +22,9 @@
     "LICENSE"
   ],
   "scripts": {
-    "test": "node scripts/smoke.mjs"
+    "test": "node scripts/workflow-render.mjs && node scripts/plugin-contract.mjs",
+    "test:host": "node scripts/verify-against-host.mjs",
+    "test:smoke": "node scripts/smoke.mjs"
   },
   "keywords": [
     "dsh",

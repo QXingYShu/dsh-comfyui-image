@@ -111,13 +111,27 @@ the GPU — you get an error naming it, not a silently wrong image.
 ## Development
 
 ```sh
-node scripts/smoke.mjs           # discovery, rendering, validation, one live generation
-node scripts/plugin-contract.mjs # apply() against a fake host: schemas, validation, disposal
-node scripts/boot-check.mjs      # apply() under the real Cordis loader
+npm test                          # hermetic: parameter resolution + apply() against a fake host
+npm run test:host                 # the installed Harness's own skill validator, extracted from app.asar
+npm run test:smoke                # discovery + a real generation of both workflows
+node scripts/boot-check.mjs       # apply() under the real Cordis loader
 ```
 
-`smoke.mjs` performs an actual generation, so ComfyUI must be reachable. The
-other two are hermetic.
+`npm test` is hermetic and needs neither ComfyUI nor the Harness. The other
+three need one of the two.
+
+`test:host` is the interesting one. `ctx.skills.register()` only validates
+`name`, `description` and `invocation`, so a skill missing its `source` field
+registers cleanly, shows up in the catalog, and then fails every time the model
+tries to load it. That second validation lives in `@deepseek-ai/dsh-skill`; this
+script lifts the real function out of the installed `app.asar` and runs the
+plugin's skill through it, with a negative control proving the check can still
+fail. `npm test` carries a transcription of the same rules so a regression is
+caught without an installed Harness.
+
+`test:smoke` generates with both workflows using the *minimal* argument shape a
+model actually produces — prompt only, every optional argument omitted — because
+that is where a default-erasing bug shows up.
 
 ## Design notes
 

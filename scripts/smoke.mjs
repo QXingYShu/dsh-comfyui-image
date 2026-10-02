@@ -3,7 +3,7 @@
 
 import { ComfyInstance, discoverInstallations, getJson, kinds } from "../lib/comfy.js";
 import { describeKind, generate, saveImageTo } from "../lib/generate.js";
-import { WORKFLOW_SPECS, loadWorkflow, renderWorkflow, roundTo32 } from "../lib/workflows.js";
+import { WORKFLOW_SPECS, buildParameters, loadWorkflow, renderWorkflow, roundTo32 } from "../lib/workflows.js";
 
 let failures = 0;
 function check(name, condition, detail) {
@@ -121,29 +121,33 @@ check("models endpoint reachable", models !== undefined);
 if (models !== undefined) console.log("  diffusion models:", JSON.stringify(models).slice(0, 200));
 
 console.log("# live generation through the plugin's own code path");
-const zKind = discoverInstallations("z-image-turbo")[0];
-const zResult = await generate({
-  kindId: "z-image-turbo",
-  spec: WORKFLOW_SPECS["z-image-turbo"],
-  template: loadWorkflow("z-image-turbo"),
-  parameters: {
-    ...WORKFLOW_SPECS["z-image-turbo"].defaults,
-    ...kinds().find((k) => k.id === "z-image-turbo").models,
-    prompt: "a small green plant in a terracotta pot, soft window light, photograph",
-    width: 1024,
-    height: 1024,
-    batch_size: 1,
-    seed: 1234,
-    filename_prefix: "plugin-smoke",
-  },
-  models: kinds().find((k) => k.id === "z-image-turbo").models,
-});
-check("live generation produced an image", zResult.images.length > 0);
-console.log(`  prompt_id=${zResult.promptId} elapsed=${zResult.elapsedMs}ms`);
-console.log(`  image=${zResult.images[0].filename}`);
-const written = await saveImageTo(zResult.images[0], "E:/agent project/dsh-comfyui-image/.smoke-out/plugin-smoke.png");
-check("image copied to disk", written.bytes > 0, String(written.bytes));
-console.log(`  saved ${written.path} (${written.bytes} bytes)`);
+// Driven by `buildParameters` with the *minimal* argument shape a model
+// produces — prompt only, every optional argument omitted. Hand-building the
+// parameter object here instead would miss the whole class of bug where an
+// omitted option silently erases its default, which is exactly the kind of
+// mistake that only shows up once the GPU is busy.
+for (const [kindId, prompt] of [
+  ["z-image-turbo", "a small green plant in a terracotta pot, soft window light, detailed photograph"],
+  ["qwen-image-2.1", 'a minimalist poster reading "DEEP DIVE" in bold sans-serif capitals, screen-print texture'],
+]) {
+  const spec = WORKFLOW_SPECS[kindId];
+  const models = kinds().find((k) => k.id === kindId).models;
+  const kind = discoverInstallations(kindId)[0];
+  const result = await generate({
+    kindId,
+    spec,
+    template: loadWorkflow(kindId),
+    parameters: buildParameters(spec, { ...models, ...spec.defaults?.models }, { prompt, seed: 1234 }),
+    models,
+  });
+  check(`${kindId} live generation produced an image`, result.images.length > 0);
+  console.log(`  prompt_id=${result.promptId} elapsed=${result.elapsedMs}ms`);
+  console.log(`  image=${result.images[0].filename}`);
+  const target = `E:/agent project/dsh-comfyui-image/.smoke-out/${kindId}-smoke.png`;
+  const written = await saveImageTo(result.images[0], target);
+  check(`${kindId} image copied to disk`, written.bytes > 0, String(written.bytes));
+  console.log(`  saved ${written.path} (${written.bytes} bytes)`);
+}
 
 console.log(failures === 0 ? "\nALL CHECKS PASSED" : `\n${failures} CHECK(S) FAILED`);
 process.exit(failures === 0 ? 0 : 1);

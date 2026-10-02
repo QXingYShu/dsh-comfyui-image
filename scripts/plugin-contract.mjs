@@ -5,6 +5,7 @@
 // usage: node scripts/plugin-contract.mjs
 
 import { apply } from "../lib/index.js";
+import { validateAsLoadedRuntimeSkill } from "./dsh-skill-contract.mjs";
 
 let failures = 0;
 function check(name, condition, detail) {
@@ -104,6 +105,23 @@ check("skill has whenToUse", typeof skill.whenToUse === "string" && skill.whenTo
 check("skill has content", typeof skill.content === "string" && skill.content.length > 200);
 check("skill content mentions both models",
   skill.content.includes("z-image-turbo") && skill.content.includes("qwen-image-2.1"));
+
+console.log("# skill shape as the Host loads it");
+// Registration only checks name/description/invocation; `validateDefinition`
+// runs later inside SkillService.get(). Running the Host's own checks here is
+// the only way to catch a skill that registers cleanly but cannot be loaded.
+let loadedSkill;
+try {
+  loadedSkill = validateAsLoadedRuntimeSkill(skill);
+  check("survives the Host's load-time validation", true);
+} catch (error) {
+  check("survives the Host's load-time validation", false, String(error.message));
+}
+check("declares a string source", typeof skill.source === "string" && skill.source.length > 0, String(skill.source));
+check("source survives as a string after defaults are applied", typeof loadedSkill?.source === "string");
+check("provider resolves to the runtime default", loadedSkill?.provider === "runtime", loadedSkill?.provider);
+check("invocation defaults to model- and user-invocable",
+  loadedSkill?.invocation?.modelInvocable === true && loadedSkill?.invocation?.userInvocable === true);
 
 console.log("# comfyui_status output");
 const report = await status.execute({}, {});

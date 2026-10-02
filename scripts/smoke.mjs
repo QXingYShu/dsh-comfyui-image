@@ -1,9 +1,11 @@
 // Standalone smoke test for the plugin's own logic (no DSH host required).
 // usage: node scripts/smoke.mjs
 
+import { readFileSync } from "node:fs";
+import { apply } from "../lib/index.js";
 import { ComfyInstance, discoverInstallations, getJson, kinds } from "../lib/comfy.js";
-import { describeKind, generate, saveImageTo } from "../lib/generate.js";
-import { WORKFLOW_SPECS, buildParameters, loadWorkflow, renderWorkflow, roundTo32 } from "../lib/workflows.js";
+import { describeKind } from "../lib/generate.js";
+import { WORKFLOW_SPECS, loadWorkflow, renderWorkflow, roundTo32 } from "../lib/workflows.js";
 
 let failures = 0;
 function check(name, condition, detail) {
@@ -105,49 +107,83 @@ for (const kind of Object.keys(WORKFLOW_SPECS)) {
   console.log(" ", JSON.stringify(describeKind(kind)));
 }
 
-console.log("# live probe of an already-running ComfyUI");
+console.log("# probe an already-running ComfyUI");
+// Informational, not a requirement: the plugin is expected to launch ComfyUI
+// itself when nothing answers, so a server that is down here is a supported
+// state, and the generation checks below are what actually have to pass.
 const probe = new ComfyInstance(discoverInstallations("z-image-turbo")[0], 8188);
 const stats = await probe.probe(undefined);
-check("port 8188 answered /system_stats", stats !== undefined);
-if (stats !== undefined) {
+if (stats === undefined) {
+  console.log("  8188 is not listening; the plugin will start ComfyUI itself below");
+} else {
   console.log("  device:", stats?.devices?.[0]?.name ?? "?");
   console.log("  comfy version:", stats?.system?.comfyui_version ?? "?");
+  const models = await getJson("http://127.0.0.1:8188/models/diffusion_models", 15000, undefined).catch((error) => {
+    console.log("  models endpoint error:", error.name, error.message);
+    return undefined;
+  });
+  if (models !== undefined) console.log("  diffusion models:", JSON.stringify(models).slice(0, 200));
 }
-const models = await getJson("http://127.0.0.1:8188/models/diffusion_models", 15000, undefined).catch((error) => {
-  console.log("  models endpoint error:", error.name, error.message, error.cause?.message ?? "");
-  return undefined;
-});
-check("models endpoint reachable", models !== undefined);
-if (models !== undefined) console.log("  diffusion models:", JSON.stringify(models).slice(0, 200));
 
-console.log("# live generation through the plugin's own code path");
-// Driven by `buildParameters` with the *minimal* argument shape a model
-// produces — prompt only, every optional argument omitted. Hand-building the
-// parameter object here instead would miss the whole class of bug where an
-// omitted option silently erases its default, which is exactly the kind of
-// mistake that only shows up once the GPU is busy.
+console.log("# live generation through the registered tool");
+// This drives `comfyui_generate`'s own `execute()` after `apply()`, so the whole
+// production path is exercised: argument validation, `buildParameters`, graph
+// rendering, the queue/poll/download loop, and the workspace copy. Calling
+// `generate()` directly would skip the tool layer, which is exactly where the
+// undefined-argument and ReferenceError defects lived.
+//
+// Arguments are deliberately minimal -- prompt and kind only, every optional
+// argument omitted -- because that is the shape a model actually produces, and
+// because a default-erasing bug only appears when an argument is left out.
+const registered = new Map();
+const dispose = apply({
+  logger: { info() {}, warn() {}, error() {} },
+  // Each register must return a disposer function, exactly as a real registry
+  // does -- `Map.set()` would return the map and make teardown throw.
+  tools: { register: (tool) => { registered.set(tool.name, tool); return () => registered.delete(tool.name); } },
+  skills: { register: () => () => {} },
+  on() {},
+});
+const comfyuiGenerate = registered.get("comfyui_generate");
+check("apply() registered comfyui_generate", comfyuiGenerate !== undefined);
+
+const OUT_DIR = "E:/agent project/dsh-comfyui-image/.smoke-out";
 for (const [kindId, prompt] of [
   ["z-image-turbo", "a small green plant in a terracotta pot, soft window light, detailed photograph"],
   ["qwen-image-2.1", 'a minimalist poster reading "DEEP DIVE" in bold sans-serif capitals, screen-print texture'],
 ]) {
-  const spec = WORKFLOW_SPECS[kindId];
-  const models = kinds().find((k) => k.id === kindId).models;
-  const kind = discoverInstallations(kindId)[0];
-  const result = await generate({
-    kindId,
-    spec,
-    template: loadWorkflow(kindId),
-    parameters: buildParameters(spec, { ...models, ...spec.defaults?.models }, { prompt, seed: 1234 }),
-    models,
-  });
-  check(`${kindId} live generation produced an image`, result.images.length > 0);
-  console.log(`  prompt_id=${result.promptId} elapsed=${result.elapsedMs}ms`);
-  console.log(`  image=${result.images[0].filename}`);
-  const target = `E:/agent project/dsh-comfyui-image/.smoke-out/${kindId}-smoke.png`;
-  const written = await saveImageTo(result.images[0], target);
-  check(`${kindId} image copied to disk`, written.bytes > 0, String(written.bytes));
-  console.log(`  saved ${written.path} (${written.bytes} bytes)`);
+  const result = await comfyuiGenerate.execute(
+    { prompt, kind: kindId, output_dir: OUT_DIR, seed: 1234 },
+    {},
+  );
+  check(`${kindId} tool call succeeded`, result.ok === true, result.message);
+  check(`${kindId} tool call produced an image`, result.images?.length === 1, JSON.stringify(result.images));
+  console.log(`  kind=${result.kind} elapsed=${result.elapsed_ms}ms prompt_id=${result.prompt_id}`);
+  console.log(`  saved ${result.images?.[0]?.path} (${result.images?.[0]?.bytes} bytes)`);
+
+  // The file must actually be on disk and be a real PNG, not a zero-byte stub.
+  const written = result.images?.[0];
+  if (written !== undefined) {
+    const bytes = readFileSync(written.path);
+    check(`${kindId} image is a real PNG on disk`,
+      bytes.length > 10_000 && bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])),
+      `${bytes.length} bytes`);
+  }
+
+  // The rendered text must survive the rendered form the model actually reads.
+  const rendered = comfyuiGenerate.output.render({ prompt }, result);
+  check(`${kindId} render names the saved file`, rendered[0].text.includes(written.path), rendered[0].text);
 }
+
+// An out-of-schema argument must still be refused before anything is queued.
+let refused = false;
+try {
+  await comfyuiGenerate.execute({ prompt: "x", kind: "not-a-model" }, {});
+} catch (error) {
+  refused = error.name === "ToolArgsError";
+}
+check("the tool still refuses an unknown kind", refused);
+dispose();
 
 console.log(failures === 0 ? "\nALL CHECKS PASSED" : `\n${failures} CHECK(S) FAILED`);
 process.exit(failures === 0 ? 0 : 1);

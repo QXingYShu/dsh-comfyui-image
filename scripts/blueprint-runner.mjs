@@ -13,9 +13,11 @@ import {
   blueprintCatalogue,
   describe,
   findBlueprint,
+  graphModels,
   requiredModels,
   resolveBlueprintInstance,
 } from "../lib/blueprint-runner.js";
+import { toPromptGraph } from "../lib/blueprint.js";
 
 let failures = 0;
 
@@ -107,10 +109,27 @@ if (target !== undefined) {
     [...required].every((model) => model.includes("/")),
     [...required].join(","),
   );
+
+  // The check that actually decides whether a run is possible reads the
+  // converted graph, not the template's model manifest: a manifest lists every
+  // model a template *could* use, and rejecting a run for an optional one is
+  // just as wrong as missing a required one.
+  const converted = graphModels(toPromptGraph(JSON.parse(target.raw), {}));
+  check("the converted graph names its models", converted.size > 0, `${converted.size}`);
+  check(
+    "graph models use real ComfyUI folders",
+    [...converted].every((model) => !model.startsWith("clip/")),
+    [...converted].join(","),
+  );
+  check(
+    "graph models are directory-qualified",
+    [...converted].every((model) => model.includes("/")),
+    [...converted].join(","),
+  );
 }
 
 console.log("\n# resolution (no server required)");
-const resolved = await resolveBlueprintInstance(target, undefined, undefined);
+const resolved = await resolveBlueprintInstance(target, {}, undefined, undefined);
 check("resolves an installation", resolved.ok === true, resolved.reason);
 if (resolved.ok === true) {
   check("names the install", typeof resolved.install?.name === "string");

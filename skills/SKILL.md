@@ -131,6 +131,9 @@ found and which defaults will be used.
   many minutes.
 - **"muted or bypassed node"** — that template cannot be converted faithfully.
   Pick another one for the same job rather than trying to force it.
+- **"needs model files that this machine does not have"** — the weights are not
+  installed. The message names the exact files and folder; report that plainly
+  rather than retrying, and suggest a template whose models are present.
 
 The first call after the server stops may take a minute or two while ComfyUI
 starts headless. Later calls reuse it and are much faster.

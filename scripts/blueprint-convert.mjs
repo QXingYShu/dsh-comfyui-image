@@ -183,6 +183,20 @@ for (const entry of all) {
     }
   }
 
+  // Nothing may reference a node that was dropped. A muted preview, a splint or
+  // a decoration all leave a hole, and a link into that hole is what makes
+  // ComfyUI report a missing input several nodes away from the cause.
+  const orphans = [];
+  for (const [id, produced] of Object.entries(graph)) {
+    for (const [name, value] of Object.entries(produced.inputs)) {
+      if (!Array.isArray(value)) continue;
+      if (graph[value[0]] === undefined) orphans.push(`${id}(${produced.class_type}).${name} -> ${value[0]}`);
+    }
+  }
+  if (orphans.length > 0) {
+    check(`${entry.id}: no dangling references`, false, orphans.slice(0, 3).join("; "));
+  }
+
   // A save node is mandatory: without it the executor persists nothing.
   if (!Object.values(graph).some((node) => node.class_type === "SaveImage")) {
     check(`${entry.id}: has a save node`, false, "no SaveImage in the graph");
@@ -229,6 +243,101 @@ if (textToImage === undefined) {
     description.inputs.find((input) => input.name === "steps")?.default === 8,
     JSON.stringify(description.inputs.find((input) => input.name === "steps")),
   );
+}
+
+section("bypassed nodes");
+{
+  // A muted node is the canvas's "skip this" switch. Dropping a preview widget
+  // is always safe; anything else has to be rewired to an upstream output of a
+  // fitting type. These assertions pin both halves of that rule, because the
+  // failure mode is a silently wrong image rather than an error.
+  let withMuted = 0;
+  let mutedDropped = 0;
+  let mutedRefused = 0;
+  const suspicious = [];
+
+  for (const entry of all) {
+    let parsed;
+    try {
+      parsed = JSON.parse(entry.raw);
+    } catch {
+      continue;
+    }
+    const wrapper = unwrapBlueprint(parsed);
+    if (wrapper === undefined) continue;
+    const muted = (wrapper.subgraph.nodes ?? []).filter((node) => node.mode === 2 || node.mode === 4);
+    if (muted.length === 0) continue;
+    withMuted += 1;
+
+    let graph;
+    try {
+      graph = toPromptGraph(parsed);
+    } catch {
+      mutedRefused += 1;
+      continue;
+    }
+    for (const node of muted) {
+      if (graph[String(node.id)] === undefined) mutedDropped += 1;
+      else suspicious.push(`${entry.id}:${node.type}`);
+    }
+  }
+
+  check(`found templates with muted nodes (${withMuted})`, withMuted > 0, "none found");
+  check(
+    `every bypassed node is either dropped or refused (${mutedDropped} dropped, ${mutedRefused} refused)`,
+    suspicious.length === 0,
+    `leaked into the graph: ${suspicious.slice(0, 3).join(", ")}`,
+  );
+
+  // The hard case: a bypassed node sitting mid-stream, in "Video LTX-2.3
+  // IC-LoRA". Its consumer must end up wired to something that exists.
+  const midStream = all.find((entry) => entry.id === "video-generation-ltx-2-3-ic-lora");
+  if (midStream === undefined) {
+    check("mid-stream bypass template present", false, "not found in the local catalogue");
+  } else {
+    const parsed = JSON.parse(midStream.raw);
+    const wrapper = unwrapBlueprint(parsed);
+    const encode = (wrapper.subgraph.nodes ?? []).find((node) => node.type === "CLIPTextEncode");
+    check("mid-stream template has a CLIPTextEncode", encode !== undefined);
+    let graph;
+    let converted = true;
+    try {
+      graph = toPromptGraph(parsed);
+    } catch (error) {
+      converted = false;
+      check("mid-stream bypass converts", false, error.message);
+    }
+    if (converted) {
+      const node = graph[String(encode.id)];
+      check("mid-stream bypass converts", true);
+      check(
+        "the rewired consumer kept its text input",
+        node !== undefined && node.inputs.text !== undefined,
+        JSON.stringify(node?.inputs?.text),
+      );
+      const ids = new Set(Object.keys(graph));
+      check(
+        "the rewired input points at a real node",
+        !Array.isArray(node?.inputs?.text) || ids.has(node.inputs.text[0]),
+        JSON.stringify(node?.inputs?.text),
+      );
+      // The rewire must not land on a bypassed node, or the reference dangles.
+      check(
+        "the rewired input does not point at a dropped node",
+        !Array.isArray(node?.inputs?.text) || graph[node.inputs.text[0]] !== undefined,
+        JSON.stringify(node?.inputs?.text),
+      );
+      check(
+        "no emitted node still references a muted node",
+        Object.entries(graph).every(([id, produced]) =>
+          Object.values(produced.inputs).every(
+            (input) => !Array.isArray(input) || graph[input[0]] !== undefined,
+          ),
+        ),
+        "a link points at a node that is not in the graph",
+      );
+    }
+  }
 }
 
 console.log(failures === 0 ? "\nALL BLUEPRINT CHECKS PASSED" : `\n${failures} CHECK(S) FAILED`);

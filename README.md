@@ -43,8 +43,13 @@ git clone https://github.com/<you>/dsh-comfyui-image.git
 dsh plugin --profile desktop add ./dsh-comfyui-image
 ```
 
-Restart the Harness (or let profile HMR pick the new bundle up) and ask for an
-image.
+Restart the Harness and ask for an image.
+
+A restart is required, not optional: the profile applies its plugins once when
+it boots, so a change to `lib/` — or to this plugin after a `git pull` — is not
+picked up by the running process. Only the Web GUI's *client* plugins hot
+reload, and only while `pnpm run dev:web` is rebuilding them; this plugin's
+tools and skill are server-side.
 
 ## How it finds your ComfyUI
 
@@ -111,14 +116,21 @@ the GPU — you get an error naming it, not a silently wrong image.
 ## Development
 
 ```sh
-npm test                          # hermetic: parameter resolution + apply() against a fake host
+npm test                          # hermetic: schema shape, parameter resolution, apply() on a fake host
 npm run test:host                 # the installed Harness's own skill validator, extracted from app.asar
-npm run test:smoke                # discovery + a real generation of both workflows
-node scripts/boot-check.mjs       # apply() under the real Cordis loader
+npm run test:smoke                # discovery + a real generation of both workflows through the tool
+node scripts/boot-check.mjs <node_modules> <plugin-dir>   # apply() under the real Cordis loader
 ```
 
 `npm test` is hermetic and needs neither ComfyUI nor the Harness. The other
-three need one of the two.
+three need one of the two, and `boot-check` additionally needs a checkout that
+supplies `@deepseek-ai/cordis`.
+
+`define-tool.mjs` asserts the *shape* of the compiled tool schema, not just the
+behaviour: JSON Schema defines `required` as an array of property names owned by
+the containing object, so a `required: true` left on a property node makes the
+schema invalid, and a gateway that validates the tool list it is handed rejects
+the whole list — every tool, not just the broken one.
 
 `test:host` is the interesting one. `ctx.skills.register()` only validates
 `name`, `description` and `invocation`, so a skill missing its `source` field

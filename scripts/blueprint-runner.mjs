@@ -19,6 +19,9 @@ import {
   resolveBlueprintInstance,
   resolveModel,
   modelFamily,
+  taskKey,
+  alternativesFor,
+  runnableTemplates,
 } from "../lib/blueprint-runner.js";
 import { toPromptGraph } from "../lib/blueprint.js";
 
@@ -218,6 +221,65 @@ console.log("\n# precision-equivalent model matching");
       `${encoder} must not resolve to qwen3vl`,
     );
   }
+}
+
+console.log("\n# task grouping and availability");
+{
+  // The grouping is what lets "can you make an image" be answered from what is
+  // installed rather than from what could be downloaded.
+  check(
+    "folds a task label into a comparable key",
+    taskKey({ task: "Text to Image" }) === "text to image",
+    taskKey({ task: "Text to Image" }),
+  );
+  check("falls back to the title", taskKey({ title: "Video Stitch" }) === "video stitch", taskKey({ title: "Video Stitch" }));
+
+  const items = await runnableTemplates();
+  const runnable = items.filter((item) => item.ready && item.drivesSampler);
+  check(`a live probe found runnable generators (${runnable.length})`, runnable.length > 0);
+
+  // A blocked template must find siblings that can actually run, which is the
+  // only reason this grouping exists.
+  const blocked = items.find(
+    (item) => !item.ready && item.drivesSampler && taskKey(item.entry) === "text to image",
+  );
+  if (blocked === undefined) {
+    console.log("    (no blocked text-to-image template on this machine; nothing to cross-check)");
+  } else {
+    const alternatives = alternativesFor(blocked.entry, items);
+    check(
+      "a blocked template finds runnable siblings for the same task",
+      alternatives.length > 0,
+      `${blocked.entry.id} -> ${alternatives.length}`,
+    );
+    check(
+      "every alternative is actually ready",
+      alternatives.every((option) => items.find((item) => item.entry.id === option.id)?.ready === true),
+      alternatives.map((option) => option.id).join(","),
+    );
+    check(
+      "an alternative is never the blocked template itself",
+      !alternatives.some((option) => option.id === blocked.entry.id),
+    );
+    check(
+      "alternatives share the blocked template's task",
+      alternatives.every((option) => taskKey(findBlueprint(option.id)) === taskKey(blocked.entry)),
+      alternatives.map((option) => option.id).join(","),
+    );
+  }
+
+  // A template with no sampler is a utility, not a capability, and must not be
+  // offered as a generator.
+  const utilities = items.filter((item) => item.ready && !item.drivesSampler);
+  if (blocked !== undefined) {
+    const all = alternativesFor(blocked.entry, items);
+    check(
+      "no sampler-less template is offered as an alternative",
+      all.every((option) => items.find((item) => item.entry.id === option.id)?.drivesSampler === true),
+      all.map((option) => option.id).join(","),
+    );
+  }
+  if (utilities.length > 0) console.log(`    (${utilities.length} utility templates are ready but generate nothing)`);
 }
 
 console.log(failures === 0 ? "\nALL RUNNER CHECKS PASSED" : `\n${failures} CHECK(S) FAILED`);

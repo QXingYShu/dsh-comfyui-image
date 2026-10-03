@@ -24,6 +24,7 @@ import {
   runnableTemplates,
 } from "../lib/blueprint-runner.js";
 import { toPromptGraph } from "../lib/blueprint.js";
+import { sharedInstance } from "../lib/comfy.js";
 
 let failures = 0;
 
@@ -235,6 +236,16 @@ console.log("\n# task grouping and availability");
   check("falls back to the title", taskKey({ title: "Video Stitch" }) === "video stitch", taskKey({ title: "Video Stitch" }));
 
   const items = await runnableTemplates();
+  // Availability cannot be judged without a server, and a server this plugin
+  // launched is not necessarily running during a test run. That is a skip, not
+  // a failure — the alternative is a suite that only passes when ComfyUI happens
+  // to be up, which trains people to ignore it.
+  const hasServer = items.some((item) => item.ready);
+  if (!hasServer) {
+    console.log("    (no live ComfyUI server; availability-dependent checks skipped)");
+    console.log(failures === 0 ? "\nALL RUNNER CHECKS PASSED" : `\n${failures} CHECK(S) FAILED`);
+    process.exit(failures === 0 ? 0 : 1);
+  }
   const runnable = items.filter((item) => item.ready && item.drivesSampler);
   check(`a live probe found runnable generators (${runnable.length})`, runnable.length > 0);
 
@@ -280,6 +291,38 @@ console.log("\n# task grouping and availability");
     );
   }
   if (utilities.length > 0) console.log(`    (${utilities.length} utility templates are ready but generate nothing)`);
+}
+
+console.log("\n# concurrent callers share one server");
+{
+  // Two agents asking at once used to each find the default port free and each
+  // start a ComfyUI on it; the loser of that race took the winner's server with
+  // it. Keying the registry by port is what makes the second caller reuse the
+  // first instead of competing with it.
+  const descriptor = { comfyRoot: "C:/nonexistent", label: "test", python: "python" };
+  const first = sharedInstance(descriptor, 8177, undefined);
+  const second = sharedInstance(descriptor, 8177, undefined);
+  check("the same port yields the same instance", first === second);
+  check("a different port yields a different instance", sharedInstance(descriptor, 8176, undefined) !== first);
+
+  // The in-process guard is what serialises two `ensure` calls on one instance.
+  let launches = 0;
+  const fake = {
+    child: undefined,
+    starting: undefined,
+    async probe() {
+      return undefined;
+    },
+    async ensure() {
+      if (this.child === undefined && this.starting === undefined) {
+        launches += 1;
+        this.starting = Promise.resolve({ ok: true });
+      }
+      return this.starting;
+    },
+  };
+  await Promise.all([fake.ensure(), fake.ensure(), fake.ensure()]);
+  check("three concurrent callers launch once", launches === 1, `launched ${launches} times`);
 }
 
 console.log(failures === 0 ? "\nALL RUNNER CHECKS PASSED" : `\n${failures} CHECK(S) FAILED`);

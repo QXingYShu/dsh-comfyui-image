@@ -129,11 +129,14 @@ found and which defaults will be used.
 - **A timeout** — the GPU is probably still working. Say so and wait; a second
   call would queue behind the first. Video and 3D templates legitimately take
   many minutes.
-- **"muted or bypassed node"** — that template cannot be converted faithfully.
-  Pick another one for the same job rather than trying to force it.
 - **"needs model files that this machine does not have"** — the weights are not
   installed. The message names the exact files and folder; report that plainly
   rather than retrying, and suggest a template whose models are present.
+- **"this template needs an input you must supply"** — templates like video
+  stitching or upscaling take source media. Pass it under the template's own
+  input names; `comfyui_templates(template=...)` lists them.
+- **The template drives no sampler** — it is a utility (colour grading, crop,
+  caption), not a generator. Use it as a step alongside a generating template.
 
 The first call after the server stops may take a minute or two while ComfyUI
 starts headless. Later calls reuse it and are much faster.

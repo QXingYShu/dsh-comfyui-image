@@ -45,18 +45,20 @@ in the frontend's JavaScript.
   converting in file order drops required inputs and ComfyUI blames a node
   several steps away
 - `Reroute` is a splint, not a decoration: dropping it severs every link behind it
-- a *bypassed* node is not in the submitted graph at all, so its consumers are
-  rewired to an upstream output — and that rewire is type-checked, because a
-  bypassed `PreviewAny` can be carrying a STRING from two wildcard hops away
-  and connecting to the first wildcard would hand a non-string to
+- a *bypassed* node is not in the submitted graph at all. When nothing consumes
+  its output it is simply dropped; when something does, the consumer is rewired
+  to an upstream output, and that rewire is type-checked — a bypassed
+  `PreviewAny` can be carrying a STRING from two wildcard hops away, and
+  connecting to the first wildcard would hand a non-string to
   `CLIPTextEncode.text`
 - template defaults live on the node an exposed input feeds, not at the top level
 - templates ship no `SaveImage`, and the executor persists only `OUTPUT_NODE`
   results, so one is appended on a collision-free id
 
-345 of 348 template files convert cleanly across 67 model families. The
-remainder are refused with a reason rather than converted into something that
-would quietly render the wrong thing.
+All 348 template files convert cleanly across 67 model families. The 117 that
+are skipped afterwards are not conversion failures — they are templates that
+drive no sampler at all (colour grading, cropping, captioning), where there is
+nothing to render.
 
 Whether a template can actually *run* is a separate question, and it is answered
 from the converted graph rather than the template's model manifest — a manifest

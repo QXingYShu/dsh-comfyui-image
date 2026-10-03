@@ -14,8 +14,10 @@ import {
   describe,
   findBlueprint,
   graphModels,
+  modelStem,
   requiredModels,
   resolveBlueprintInstance,
+  resolveModel,
 } from "../lib/blueprint-runner.js";
 import { toPromptGraph } from "../lib/blueprint.js";
 
@@ -133,6 +135,72 @@ const resolved = await resolveBlueprintInstance(target, {}, undefined, undefined
 check("resolves an installation", resolved.ok === true, resolved.reason);
 if (resolved.ok === true) {
   check("names the install", typeof resolved.install?.name === "string");
+}
+
+console.log("\n# precision-equivalent model matching");
+{
+  // Regression: a machine that has a model in one precision must not be told
+  // to download the same model in another. Telling the user to fetch twenty
+  // gigabytes of weights they already own is the failure this guards.
+  check("strips a quantisation suffix", modelStem("qwen_image_fp8_e4m3fn.safetensors") === "qwen_image", modelStem("qwen_image_fp8_e4m3fn.safetensors"));
+  check("strips convrot int8", modelStem("qwen_image_2.1_int8_convrot.safetensors") === "qwen_image_2.1", modelStem("qwen_image_2.1_int8_convrot.safetensors"));
+  check("keeps the version in the stem", modelStem("qwen_image_2.1_vae_bf16.safetensors") === "qwen_image_2.1_vae", modelStem("qwen_image_2.1_vae_bf16.safetensors"));
+
+  const have = new Set([
+    "diffusion_models/qwen_image_2.1_int8_convrot.safetensors",
+    "text_encoders/qwen3vl_8b_int8_convrot.safetensors",
+    "vae/qwen_image_2.1_vae_bf16.safetensors",
+  ]);
+  check(
+    "an fp8 request resolves to the installed int8 build of the same model",
+    resolveModel("diffusion_models/qwen_image_2.1_fp8_e4m3fn.safetensors", have) === "diffusion_models/qwen_image_2.1_int8_convrot.safetensors",
+  );
+  check(
+    "the VAE resolves across precision",
+    resolveModel("vae/qwen_image_2.1_vae_fp16.safetensors", have) === "vae/qwen_image_2.1_vae_bf16.safetensors",
+  );
+  check(
+    "an unrelated model does not resolve",
+    resolveModel("diffusion_models/some_other_model.safetensors", have) === undefined,
+  );
+  check(
+    "the same name in a different folder is not a substitute",
+    resolveModel("text_encoders/qwen_image_fp8_e4m3fn.safetensors", have) === undefined,
+    "a text encoder must not satisfy a diffusion-model slot",
+  );
+  check(
+    "a different text-encoder family is not a substitute",
+    resolveModel("text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors", have) === undefined,
+    "qwen3vl and qwen2.5-vl are different encoders; swapping them would render noise",
+  );
+  check(
+    "a different model family is not a substitute",
+    resolveModel("diffusion_models/qwen_image_fp8_e4m3fn.safetensors", have) === undefined,
+    "qwen_image and qwen_image_2.1 are different releases, not precisions of one another",
+  );
+
+  // The real case from this machine. The shipped Qwen template names the fp8
+  // build and the qwen2.5-vl encoder; this machine has qwen_image_2.1 in int8 and
+  // a qwen3vl encoder. Those are different models, so the honest answer is that
+  // the template still needs files -- what must not happen is being told to
+  // download the *same* weights in another precision.
+  const qwen = findBlueprint("text-to-image-qwen-image");
+  if (qwen === undefined) {
+    check("qwen template present", false, "not found");
+  } else {
+    const graph = toPromptGraph(JSON.parse(qwen.raw), {});
+    const wanted = [...graphModels(graph)];
+    check("it would otherwise have demanded four downloads", wanted.length >= 4, `${wanted.length}`);
+    for (const model of wanted) {
+      const stem = modelStem(model);
+      const alreadyOwned = [...have].some((owned) => modelStem(owned) === stem);
+      check(
+        `does not demand a re-download of ${stem}`,
+        !alreadyOwned || resolveModel(model, have) !== undefined,
+        "the machine already has this model in another precision",
+      );
+    }
+  }
 }
 
 console.log(failures === 0 ? "\nALL RUNNER CHECKS PASSED" : `\n${failures} CHECK(S) FAILED`);

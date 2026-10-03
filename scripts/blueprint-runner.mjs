@@ -18,6 +18,7 @@ import {
   requiredModels,
   resolveBlueprintInstance,
   resolveModel,
+  modelFamily,
 } from "../lib/blueprint-runner.js";
 import { toPromptGraph } from "../lib/blueprint.js";
 
@@ -151,13 +152,26 @@ console.log("\n# precision-equivalent model matching");
     "text_encoders/qwen3vl_8b_int8_convrot.safetensors",
     "vae/qwen_image_2.1_vae_bf16.safetensors",
   ]);
+  const resolvedOf = (wanted) => resolveModel(wanted, have)?.file;
+
+  check("strips a version from the family", modelFamily("qwen_image_2.1_int8_convrot.safetensors") === "qwen_image", modelFamily("qwen_image_2.1_int8_convrot.safetensors"));
+
   check(
-    "an fp8 request resolves to the installed int8 build of the same model",
-    resolveModel("diffusion_models/qwen_image_2.1_fp8_e4m3fn.safetensors", have) === "diffusion_models/qwen_image_2.1_int8_convrot.safetensors",
+    "a same-model request in another precision resolves as a precision swap",
+    resolveModel("diffusion_models/qwen_image_2.1_fp8_e4m3fn.safetensors", have)?.kind === "precision",
+  );
+  check(
+    "an existing release is preferred over a download",
+    resolvedOf("diffusion_models/qwen_image_fp8_e4m3fn.safetensors") === "diffusion_models/qwen_image_2.1_int8_convrot.safetensors",
+    "the machine owns qwen_image_2.1; asking for the base release again is pointless",
+  );
+  check(
+    "...and is reported as a release swap, not a silent one",
+    resolveModel("diffusion_models/qwen_image_fp8_e4m3fn.safetensors", have)?.kind === "release",
   );
   check(
     "the VAE resolves across precision",
-    resolveModel("vae/qwen_image_2.1_vae_fp16.safetensors", have) === "vae/qwen_image_2.1_vae_bf16.safetensors",
+    resolvedOf("vae/qwen_image_2.1_vae_fp16.safetensors") === "vae/qwen_image_2.1_vae_bf16.safetensors",
   );
   check(
     "an unrelated model does not resolve",
@@ -174,16 +188,15 @@ console.log("\n# precision-equivalent model matching");
     "qwen3vl and qwen2.5-vl are different encoders; swapping them would render noise",
   );
   check(
-    "a different model family is not a substitute",
-    resolveModel("diffusion_models/qwen_image_fp8_e4m3fn.safetensors", have) === undefined,
-    "qwen_image and qwen_image_2.1 are different releases, not precisions of one another",
+    "an unrelated family that shares a prefix is not a substitute",
+    resolveModel("diffusion_models/wan2.1_hires.safetensors", have) === undefined,
   );
 
-  // The real case from this machine. The shipped Qwen template names the fp8
-  // build and the qwen2.5-vl encoder; this machine has qwen_image_2.1 in int8 and
-  // a qwen3vl encoder. Those are different models, so the honest answer is that
-  // the template still needs files -- what must not happen is being told to
-  // download the *same* weights in another precision.
+  // The real case from this machine: the shipped Qwen template names the base
+  // qwen_image release and the qwen2.5-vl encoder, while this machine carries
+  // qwen_image_2.1 and a qwen3vl encoder. The main model is the same family, so
+  // it resolves; the encoder is a different family, so it must not — swapping
+  // those would render noise rather than raise an error.
   const qwen = findBlueprint("text-to-image-qwen-image");
   if (qwen === undefined) {
     check("qwen template present", false, "not found");
@@ -191,15 +204,19 @@ console.log("\n# precision-equivalent model matching");
     const graph = toPromptGraph(JSON.parse(qwen.raw), {});
     const wanted = [...graphModels(graph)];
     check("it would otherwise have demanded four downloads", wanted.length >= 4, `${wanted.length}`);
-    for (const model of wanted) {
-      const stem = modelStem(model);
-      const alreadyOwned = [...have].some((owned) => modelStem(owned) === stem);
-      check(
-        `does not demand a re-download of ${stem}`,
-        !alreadyOwned || resolveModel(model, have) !== undefined,
-        "the machine already has this model in another precision",
-      );
-    }
+
+    const main = wanted.find((model) => model.startsWith("diffusion_models/"));
+    check(
+      "the base qwen_image release resolves to the installed 2.1",
+      resolvedOf(main) === "diffusion_models/qwen_image_2.1_int8_convrot.safetensors",
+      `${main} -> ${resolvedOf(main)}`,
+    );
+    const encoder = wanted.find((model) => model.startsWith("text_encoders/"));
+    check(
+      "a missing encoder is still reported rather than swapped",
+      resolveModel(encoder, have) === undefined,
+      `${encoder} must not resolve to qwen3vl`,
+    );
   }
 }
 

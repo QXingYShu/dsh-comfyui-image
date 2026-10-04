@@ -67,6 +67,29 @@ ControlNet is as wrong as missing a required one. A template whose weights are
 not on this machine is refused before it reaches the executor, with the missing
 files named, instead of coming back as an opaque HTTP 400.
 
+## Downloads go through a mirror
+
+Model weights come from `hf-mirror.com` by default. The interesting part is not
+the URLs the plugin prints — it is that **the ComfyUI process is started with
+`HF_ENDPOINT` set**, because `huggingface_hub` reads that variable at import
+time and rewrites every URL it builds from then on. Without it the plugin can
+hand you a mirror link and ComfyUI still crawls to huggingface.co the moment you
+install anything by hand.
+
+Override it when the direct origin is reachable:
+
+```sh
+DSH_HF_ENDPOINT=https://huggingface.co    # or just set HF_ENDPOINT
+```
+
+`HF_HUB_ENABLE_HF_TRANSFER` is deliberately left off: it selects a Rust
+downloader the mirror does not serve, so turning it on turns a slow download
+into a failed one.
+
+The plugin still downloads nothing on its own initiative. It reports the files,
+their sizes, their licences and the free space left, and fetches only when you
+pass `download=true` after reading that report.
+
 ## The knowledge layer
 
 Capability is not the hard part — knowing how to *drive* a model is. The

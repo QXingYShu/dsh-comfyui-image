@@ -71,13 +71,30 @@ Final quality, legible in-image text, or a negative prompt → `qwen-image-2.1`.
 
 1. Find it: `comfyui_templates(task="video")` or `comfyui_templates(search="portrait")`.
 2. Read it: `comfyui_templates(template="<id>")`. This returns its inputs, their
-   defaults, **and the model's tuning notes** — sampler range, whether it takes a
-   negative prompt, and prompt-specific advice.
-3. Run it: `comfyui_run_template(template="<id>", inputs={text: "..."})`.
+   defaults, the model's tuning notes, and — where the author published one — a
+   pointer to its official prompt guide.
+3. Write the prompt: `comfyui_templates(prompts="<model>")` fetches that guide.
+   **Do this before writing a prompt for a model you have not used.**
+4. Run it: `comfyui_run_template(template="<id>", inputs={text: "..."})`.
    Anything you omit keeps the template's own tuned value.
 
 Do not invent input names. The template decides what it accepts, and only its
 declared inputs are forwarded.
+
+## Official prompt guides
+
+Every model reads a prompt the way it was trained to, and the formats differ
+more than you would expect. MiniMax H3 — which reads your text with a full
+multimodal language model — expects a three-part structure with a timeline, shot
+grammar and camera-motion vocabulary, and the author publishes a separate guide
+for each mode. Z-Image-Turbo cannot accept a negative prompt at all. Qwen-Image
+wants literal text wrapped in quotes.
+
+`comfyui_templates(prompts="<model family>")` returns the author's own guide,
+fetched through the mirror and cached for a week. Read it rather than guessing:
+the parts that matter are exactly the ones a plausible-looking prompt leaves out.
+Where no guide is published, the call says so and falls back to the local notes,
+so silence is never mistaken for "nothing to say".
 
 ## Writing a prompt
 

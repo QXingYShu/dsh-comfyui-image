@@ -197,5 +197,56 @@ dispose();
 check("dispose removes tools", tools.size === 0, [...tools.keys()].join(", "));
 check("dispose removes the skill", skills.size === 0, [...skills.keys()].join(", "));
 
+console.log("\n# recommendation breadth");
+{
+  const { recommendForTask, queryModel } = await import("../lib/model-knowledge.js");
+  const { templatesTool } = await import("../lib/template-tools.js");
+
+  // A short list reads as "these are the options". It is not: text-to-image
+  // has seventeen candidates, and truncating hid the models the user actually
+  // recognises.
+  const textToImage = recommendForTask("text-to-image");
+  check("text-to-image has many candidates", textToImage.length >= 10, `${textToImage.length}`);
+
+  // The curated workflow is registered as qwen-image-2.1 and called "Qwen Image
+  // 2.1"; the knowledge record was filed as "Qwen-Image" with no alias, so a
+  // lookup by either name missed the best installed model on the machine.
+  check(
+    "Qwen-Image is reachable by its curated id",
+    queryModel("Qwen Image 2.1")?.family === "Qwen-Image",
+    queryModel("Qwen Image 2.1")?.family,
+  );
+  check(
+    "Qwen-Image is reachable by its hyphenated form",
+    queryModel("qwen-image-2.1")?.family === "Qwen-Image",
+  );
+
+  // Tasks that exist as templates must exist as labels, or those templates can
+  // never be recommended.
+  for (const task of ["image-inpainting", "image-outpainting"]) {
+    const found = recommendForTask(task);
+    check(`${task} has candidates`, found.length > 0, found.map((r) => r.family).join(", "));
+  }
+
+  // The rendered list must not be truncated to a shortlist.
+  const t = templatesTool();
+  const rendered = await t.execute({ task: "text-to-image", recommend: true }, {});
+  const numbered = rendered.message.match(/^\d+\. /gm)?.length ?? 0;
+  check(
+    "every candidate is rendered, not a shortlist",
+    numbered >= 10,
+    `only ${numbered} rows`,
+  );
+  check(
+    "runnable models are marked",
+    rendered.message.includes("[READY HERE]"),
+    "no readiness marker",
+  );
+  check(
+    "models without weights are marked too",
+    rendered.message.includes("[needs weights]"),
+  );
+}
+
 console.log(failures === 0 ? "\nALL CONTRACT CHECKS PASSED" : `\n${failures} CONTRACT CHECK(S) FAILED`);
 process.exit(failures === 0 ? 0 : 1);

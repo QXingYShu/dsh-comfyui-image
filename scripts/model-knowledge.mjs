@@ -377,5 +377,34 @@ if (INSTALL_ROOT === undefined || !existsSync(INSTALL_ROOT)) {
   check(`every shipped family is queryable (${shipped.size})`, uncovered.length === 0, uncovered.join(", "));
 }
 
+console.log("\n# recommendation ranking");
+{
+  // Ranking used to be decided by speed alone, which handed a fast
+  // text-to-image model the "depth" task and a generalist the "pose" task.
+  // It now puts the model built for the task first and uses speed only to break
+  // ties, so a fast generalist cannot outrank a specialist.
+  const top = (task) => recommendForTask(task)[0]?.family;
+
+  check("depth is answered by a depth model", /depth|lotus|marigold|moge/i.test(top("depth") ?? ""), top("depth"));
+  check("pose is answered by a pose model", /pose|mediapipe/i.test(top("pose") ?? ""), top("pose"));
+  check("segmentation is answered by a matting model", /birefnet|sam/i.test(top("segmentation") ?? ""), top("segmentation"));
+  check("upscale is answered by an upscaler", /seedvr2|gan/i.test(top("upscale") ?? ""), top("upscale"));
+  check("music is answered by a music model", /ace-step|minimax|yue/i.test(top("music") ?? ""), top("music"));
+  check("3d is answered by a 3D model", /hunyuan|triposplat|moge/i.test(top("3d") ?? ""), top("3d"));
+
+  // A cloud-only model must not lead a task a local model can do: it needs an
+  // account the agent knows nothing about.
+  const t2i = recommendForTask("text-to-image")[0]?.family ?? "";
+  check("no cloud-only model leads text-to-image", !/^(Ideogram|Gemini)/.test(t2i), t2i);
+
+  // The two curated workflows are a fast path, not a default. Being quick is
+  // not a reason to lead a task the model was not built for.
+  const specialist = ["control", "image-to-image", "depth", "pose", "upscale", "segmentation"];
+  const ledByTurbo = specialist.filter((task) => top(task) === "Z-Image-Turbo");
+  check("the turbo model leads no specialist task", ledByTurbo.length === 0, `led: ${ledByTurbo.join(", ")}`);
+
+  check("an explicit speed preference still steers the order", typeof recommendForTask("text-to-image", { speed: "draft" })[0]?.family === "string");
+}
+
 console.log(failures === 0 ? "\nALL MODEL KNOWLEDGE CHECKS PASSED" : `\n${failures} CHECK(S) FAILED`);
 process.exit(failures === 0 ? 0 : 1);

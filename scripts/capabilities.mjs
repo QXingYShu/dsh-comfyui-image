@@ -84,6 +84,36 @@ console.log("\n# a model with no image input stays excluded");
   );
 }
 
+console.log("\n# a model the plugin has never heard of");
+{
+  // ComfyUI adds models on a schedule and nothing re-writes the knowledge layer
+  // when it does. A model that arrived with an update used to be discoverable,
+  // runnable, and absent from every recommendation, because the answer was
+  // filtered through a hand-written table. Silence is what made it invisible, so
+  // a synthesised record must say plainly that nothing is known about it.
+  const known = new Set(MODEL_KNOWLEDGE.map((record) => record.family));
+  const shipped = catalogue.map((entry) => entry.model).filter(Boolean);
+  const newcomer = [...new Set(shipped)].find((model) => !known.has(model));
+
+  if (newcomer === undefined) {
+    console.log(`    (all ${known.size} shipped models are recorded)`);
+  }
+
+  // Checked on the record itself rather than on a catalogue entry, because the
+  // point is what a record carries when nothing is known about it.
+  const unrecorded = recommendForTask("image-to-image", { catalogue });
+  check(
+    "every record is either from the table or marked unregistered",
+    unrecorded.every((record) => record.unregistered === true || known.has(record.family)),
+    unrecorded.filter((r) => r.unregistered !== true && !known.has(r.family)).map((r) => r.family).join(", "),
+  );
+  check(
+    "no record invents a licence it has not checked",
+    unrecorded.every((record) => record.unregistered !== true || (record.notes ?? []).length > 0),
+    "an unregistered record with no note saying so",
+  );
+}
+
 console.log("\n# without a catalogue it degrades to declarations");
 {
   // Reading templates must not be a hard dependency: with no catalogue the
